@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Live JSON Trends</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    header { padding: 16px 20px; border-bottom: 1px solid #ddd; }
+    h1 { margin: 0; font-size: 18px; }
+    .wrap { padding: 16px 20px; display: grid; gap: 16px; }
+    .card {
+      border: 1px solid #e5e7eb; border-radius: 16px; padding: 16px;
+      box-shadow: 0 1px 8px rgba(0,0,0,0.05);
+      background: canvas;
+    }
+    .row { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 900px) {
+      .row { grid-template-columns: 1fr 1fr; }
+    }
+    .meta { font-size: 12px; opacity: 0.8; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Live JSON Trends</h1>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <div class="wrap">
+    <div class="row" id="charts"></div>
+  </div>
+
+  <script>
+    const DATA_URL = "/data";
+    const CONFIG_URL = "/config";
+    const REFRESH_MS = 5000; // client-side refresh
+
+    let charts = {};
+    let chartOrder = [];
+
+    function makeCard(title) {
+      const card = document.createElement("div");
+      card.className = "card";
+      const canvas = document.createElement("canvas");
+      canvas.height = 240;
+      card.appendChild(canvas);
+      return { card, canvas };
+    }
+
+    function ensureChart(metricName) {
+      if (charts[metricName]) return charts[metricName];
+
+      const { card, canvas } = makeCard(metricName);
+      document.getElementById("charts").appendChild(card);
+
+      const ctx = canvas.getContext("2d");
+      const chart = new Chart(ctx, {
+        type: "line",
+        data: {
+          datasets: [{
+            label: metricName,
+            data: [],
+            parsing: false, // we feed {x: ts, y: val}
+          }]
+        },
+        options: {
+          animation: false,
+          normalized: true,
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "nearest", intersect: false },
+          scales: {
+            x: {
+              type: "time",
+              time: { unit: "minute" },
+              ticks: { maxRotation: 0 }
+            },
+            y: { beginAtZero: false }
+          },
+          plugins: {
+            legend: { display: true },
+            tooltip: { callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y}`
+            } }
+          }
+        }
+      });
+
+      charts[metricName] = chart;
+      chartOrder.push(metricName);
+      return chart;
+    }
+
+    async function fetchConfig() {
+      const r = await fetch(CONFIG_URL);
+      const cfg = await r.json();
+      const meta = document.getElementById("meta");
+      meta.textContent = `Polling ${cfg.json_url} every ${cfg.poll_interval_sec}s | metrics: ${Object.keys(cfg.metrics).join(", ")}`;
+    }
+
+    async function refresh() {
+      try {
+        const r = await fetch(DATA_URL, { cache: "no-store" });
+        const payload = await r.json();
+        const series = payload.series || {};
+
+        for (const [name, points] of Object.entries(series)) {
+          const chart = ensureChart(name);
+          chart.data.datasets[0].data = points.map(([ts, val]) => ({ x: ts, y: val }));
+          chart.update();
+        }
+      } catch (e) {
+        // Fail silently in UI; consider showing a toast in real apps
+      }
+    }
+
+    (async function init() {
+      await fetchConfig();
+      await refresh();
+      setInterval(refresh, REFRESH_MS);
+    })();
+  </script>
+
+  <!-- Time scale adapter (Chart.js v4 needs a date adapter).
+       Using built-in Intl adapter via chartjs-adapter-date-fns or moment is common.
+       Here we’ll use date-fns adapter: -->
+  <script src="https://cdn.jsdelivr.net/npm/date-fns@3.6.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# Python virtual environment
+venv/
+.venv/
+.DS_Store
+config.local.js
+secrets.txt
+*.log
+*.tmp
+*.bak
+*.class
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+node_modules/
